@@ -371,11 +371,38 @@ class TestContextIsolation:
         prompt = ps.build_general_prompt(workspace_names=["Voxyflow"])
         assert prompt.startswith("## Who You Are")
 
+    def test_general_full_prompt_includes_custom_instructions(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(
+            ps,
+            "get_personality_settings",
+            lambda: {"custom_instructions": "CUSTOM_MARKER", "tone": "casual", "warmth": "warm", "preferred_language": "auto"},
+        )
+        prompt = ps.build_general_prompt()
+        assert "## Custom Instructions" in prompt
+        assert "CUSTOM_MARKER" in prompt
+
     def test_workspace_full_prompt_includes_chat_init_first(self):
         ps = self._ps()
         workspace = {"title": "TestWorkspace"}
         prompt = ps.build_workspace_prompt(workspace)
         assert prompt.startswith("## Workspace:")
+
+    def test_workspace_full_prompt_includes_identity(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_identity", lambda: "IDENTITY_MARKER")
+        prompt = ps.build_workspace_prompt({"title": "TestWorkspace"})
+        assert "IDENTITY_MARKER" in prompt
+
+    def test_workspace_full_prompt_includes_custom_instructions(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(
+            ps,
+            "get_personality_settings",
+            lambda: {"custom_instructions": "CUSTOM_MARKER", "tone": "casual", "warmth": "warm", "preferred_language": "auto"},
+        )
+        prompt = ps.build_workspace_prompt({"title": "TestWorkspace"})
+        assert "CUSTOM_MARKER" in prompt
 
     def test_card_full_prompt_includes_chat_init_first(self):
         ps = self._ps()
@@ -383,6 +410,38 @@ class TestContextIsolation:
         card = {"title": "Fix bug"}
         prompt = ps.build_card_prompt(workspace, card)
         assert prompt.startswith("## Chat Init")
+
+    def test_card_full_prompt_includes_identity(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_identity", lambda: "IDENTITY_MARKER")
+        prompt = ps.build_card_prompt({"title": "TestWorkspace"}, {"title": "Fix bug"})
+        assert "IDENTITY_MARKER" in prompt
+
+    def test_card_agent_prompt_includes_user_profile(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_user", lambda: "USER_MARKER")
+        prompt = ps.build_card_prompt(
+            {"title": "TestWorkspace"},
+            {"title": "Fix bug"},
+            agent_persona={"system_prompt": "AGENT_MARKER"},
+        )
+        assert "AGENT_MARKER" in prompt
+        assert "USER_MARKER" in prompt
+
+    def test_card_agent_prompt_includes_custom_instructions(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(
+            ps,
+            "get_personality_settings",
+            lambda: {"custom_instructions": "CUSTOM_MARKER", "tone": "casual", "warmth": "warm", "preferred_language": "auto"},
+        )
+        prompt = ps.build_card_prompt(
+            {"title": "TestWorkspace"},
+            {"title": "Fix bug"},
+            agent_persona={"system_prompt": "AGENT_MARKER"},
+        )
+        assert "AGENT_MARKER" in prompt
+        assert "CUSTOM_MARKER" in prompt
 
     def test_general_and_workspace_tools_overlap_post_refactor(self):
         """Post-refactor: both general (Main workspace) and workspace have card tools.
@@ -564,6 +623,86 @@ class TestFastPromptToolInjection:
         prompt = ps.build_fast_prompt(chat_level="general")
         assert "voxyflow.delegate" in prompt, "Fast prompt should instruct on voxyflow.delegate MCP tool"
         assert "<delegate>" not in prompt, "Fast prompt must NOT contain legacy <delegate> XML markup"
+
+
+class TestWorkerPromptIdentity:
+    def _ps(self):
+        from app.services.personality_service import PersonalityService
+        return PersonalityService()
+
+    def test_worker_prompt_includes_identity(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_identity", lambda: "IDENTITY_MARKER")
+        monkeypatch.setattr(ps, "load_soul", lambda: "")
+        monkeypatch.setattr(ps, "load_user", lambda: "")
+        monkeypatch.setattr(ps, "load_worker", lambda: "WORKER_MARKER")
+        monkeypatch.setattr(ps, "_build_tool_section", lambda *args, **kwargs: "TOOLS_MARKER")
+
+        prompt = ps.build_worker_prompt(chat_level="general")
+
+        assert "IDENTITY_MARKER" in prompt
+        assert prompt.index("IDENTITY_MARKER") < prompt.index("WORKER_MARKER")
+
+    def test_worker_prompt_includes_user_profile(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_identity", lambda: "")
+        monkeypatch.setattr(ps, "load_soul", lambda: "")
+        monkeypatch.setattr(ps, "load_user", lambda: "USER_MARKER")
+        monkeypatch.setattr(ps, "load_worker", lambda: "WORKER_MARKER")
+        monkeypatch.setattr(ps, "_build_tool_section", lambda *args, **kwargs: "TOOLS_MARKER")
+
+        prompt = ps.build_worker_prompt(chat_level="general")
+
+        assert "USER_MARKER" in prompt
+        assert prompt.index("USER_MARKER") < prompt.index("WORKER_MARKER")
+
+    def test_worker_prompt_includes_custom_instructions(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_identity", lambda: "")
+        monkeypatch.setattr(ps, "load_soul", lambda: "")
+        monkeypatch.setattr(ps, "load_user", lambda: "")
+        monkeypatch.setattr(ps, "load_worker", lambda: "WORKER_MARKER")
+        monkeypatch.setattr(ps, "_build_tool_section", lambda *args, **kwargs: "TOOLS_MARKER")
+        monkeypatch.setattr(
+            ps,
+            "get_personality_settings",
+            lambda: {"custom_instructions": "CUSTOM_MARKER", "tone": "casual", "warmth": "warm", "preferred_language": "auto"},
+        )
+
+        prompt = ps.build_worker_prompt(chat_level="general")
+
+        assert "CUSTOM_MARKER" in prompt
+        assert prompt.index("CUSTOM_MARKER") < prompt.index("WORKER_MARKER")
+
+
+class TestAgentPromptBuilder:
+    def _ps(self):
+        from app.services.personality_service import PersonalityService
+        return PersonalityService()
+
+    def test_legacy_system_prompt_builder_removed(self):
+        ps = self._ps()
+        assert not hasattr(ps, "build_system_prompt")
+
+    def test_agent_prompt_uses_active_settings_overrides(self, monkeypatch):
+        ps = self._ps()
+        monkeypatch.setattr(ps, "load_identity", lambda: "")
+        monkeypatch.setattr(ps, "load_soul", lambda: "")
+        monkeypatch.setattr(ps, "load_agents", lambda: "")
+        monkeypatch.setattr(ps, "load_user", lambda: "USER_MARKER")
+        monkeypatch.setattr(
+            ps,
+            "get_personality_settings",
+            lambda: {"custom_instructions": "CUSTOM_MARKER", "tone": "casual", "warmth": "warm", "preferred_language": "auto"},
+        )
+
+        prompt = ps.build_agent_prompt("AGENT_MARKER", "TASK_MARKER", memory_context="MEMORY_MARKER")
+
+        assert "USER_MARKER" in prompt
+        assert "CUSTOM_MARKER" in prompt
+        assert "MEMORY_MARKER" in prompt
+        assert "AGENT_MARKER" in prompt
+        assert "TASK_MARKER" in prompt
 
 
 class TestMemoryFallbackIsolation:

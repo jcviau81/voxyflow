@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -495,6 +496,7 @@ async def publish_completion(
     # the bounded block size already prevents.
     dispatcher_chat_id = event.data.get("dispatcher_chat_id")
     if dispatcher_chat_id:
+        completion_path_start = time.perf_counter()
         payload = supervisor.get_completion_payload(event.task_id)
         status = (payload or {}).get("status") or "success"
         summary_source = ((payload or {}).get("summary") or result_content or "").strip()
@@ -510,6 +512,18 @@ async def publish_completion(
             completion=payload,
         )
         pool._schedule_dispatcher_callback(dispatcher_chat_id, event)
+        task_started_at = event.data.get("_worker_started_perf")
+        total_ms = (
+            int((time.perf_counter() - task_started_at) * 1000)
+            if isinstance(task_started_at, (int, float)) else -1
+        )
+        logger.info(
+            "[DeepWorker] completion callback path task_id=%s chat_id=%s "
+            "elapsed_ms=%s total_task_ms=%s",
+            event.task_id, dispatcher_chat_id,
+            int((time.perf_counter() - completion_path_start) * 1000),
+            total_ms,
+        )
 
     if follow_up_action and pool._orchestrator and event.session_id:
         try:
@@ -559,6 +573,7 @@ def record_cancellation(pool: "DeepWorkerPool", event: ActionIntent) -> None:
     from app.services.worker_supervisor import get_worker_supervisor
     dispatcher_chat_id = event.data.get("dispatcher_chat_id")
     if dispatcher_chat_id:
+        completion_path_start = time.perf_counter()
         try:
             st = get_worker_supervisor().get_status(event.task_id) or {}
             problem = (st.get("problem_reason") or "").strip()
@@ -582,6 +597,18 @@ def record_cancellation(pool: "DeepWorkerPool", event: ActionIntent) -> None:
                 summary_line=reason,
             )
             pool._schedule_dispatcher_callback(dispatcher_chat_id, event)
+            task_started_at = event.data.get("_worker_started_perf")
+            total_ms = (
+                int((time.perf_counter() - task_started_at) * 1000)
+                if isinstance(task_started_at, (int, float)) else -1
+            )
+            logger.info(
+                "[DeepWorker] cancellation callback path task_id=%s chat_id=%s "
+                "elapsed_ms=%s total_task_ms=%s",
+                event.task_id, dispatcher_chat_id,
+                int((time.perf_counter() - completion_path_start) * 1000),
+                total_ms,
+            )
         except Exception as _rec_err:
             logger.warning(
                 f"[DeepWorker] Failed to record cancel event for "
@@ -639,6 +666,7 @@ async def record_failure(pool: "DeepWorkerPool", event: ActionIntent, e: Excepti
     # Record ambient failure event — dispatcher will see it on its next turn.
     dispatcher_chat_id = event.data.get("dispatcher_chat_id")
     if dispatcher_chat_id:
+        completion_path_start = time.perf_counter()
         pool.record_worker_event(
             dispatcher_chat_id,
             task_id=event.task_id,
@@ -647,3 +675,15 @@ async def record_failure(pool: "DeepWorkerPool", event: ActionIntent, e: Excepti
             summary_line=str(e)[:200],
         )
         pool._schedule_dispatcher_callback(dispatcher_chat_id, event)
+        task_started_at = event.data.get("_worker_started_perf")
+        total_ms = (
+            int((time.perf_counter() - task_started_at) * 1000)
+            if isinstance(task_started_at, (int, float)) else -1
+        )
+        logger.info(
+            "[DeepWorker] failure callback path task_id=%s chat_id=%s "
+            "elapsed_ms=%s total_task_ms=%s",
+            event.task_id, dispatcher_chat_id,
+            int((time.perf_counter() - completion_path_start) * 1000),
+            total_ms,
+        )

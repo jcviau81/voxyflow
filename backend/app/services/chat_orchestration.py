@@ -77,6 +77,12 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         # Bounded LRU — oldest idle chats get evicted once we're over the cap so
         # long-lived servers don't grow this dict without bound.
         self._chat_locks: "OrderedDict[str, asyncio.Lock]" = OrderedDict()
+        # Per-chat turn state used to cancel stale worker callbacks. User
+        # messages bump the generation before waiting on the chat lock so a
+        # callback already in-flight can notice it is stale and stop before
+        # flushing buffered tokens.
+        self._chat_turn_state: dict[str, dict[str, str | int]] = {}
+        self._active_callback_tasks: dict[str, asyncio.Task] = {}
 
     MAX_CALLBACK_DEPTH = 5  # Prevent infinite dispatcher↔worker re-trigger loops
     _CHAT_LOCKS_CAP = 512  # evict oldest unlocked entries past this
@@ -97,6 +103,35 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         else:
             self._chat_locks.move_to_end(chat_id)
         return lock
+
+    def _bump_user_turn(self, chat_id: str, message_id: str) -> int:
+        state = self._chat_turn_state.setdefault(chat_id, {"generation": 0, "message_id": ""})
+        generation = int(state.get("generation") or 0) + 1
+        state["generation"] = generation
+        state["message_id"] = message_id
+        return generation
+
+    def _snapshot_turn(self, chat_id: str) -> int:
+        state = self._chat_turn_state.setdefault(chat_id, {"generation": 0, "message_id": ""})
+        return int(state.get("generation") or 0)
+
+    def is_turn_current(self, chat_id: str, turn_generation: int | None, message_id: str) -> bool:
+        """Return whether a buffered response is still relevant to send."""
+        if turn_generation is None:
+            return True
+        state = self._chat_turn_state.get(chat_id) or {}
+        current_generation = int(state.get("generation") or 0)
+        current_message_id = str(state.get("message_id") or "")
+        current = current_generation == turn_generation
+        if not current:
+            logger.info(
+                "[Orchestrator] stale response guard: cancel send "
+                "chat_id=%s message_id=%s turn_generation=%s "
+                "current_generation=%s current_message_id=%s",
+                chat_id, message_id, turn_generation,
+                current_generation, current_message_id,
+            )
+        return current
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -126,14 +161,60 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         Uses a per-chat lock to prevent race conditions between user messages
         and worker callbacks generating simultaneous responses.
         """
-        async with self._get_chat_lock(chat_id):
-            return await self._handle_message_inner(
-                websocket=websocket, content=content, message_id=message_id,
-                chat_id=chat_id, workspace_id=workspace_id, layers=layers,
-                chat_level=chat_level, is_callback=is_callback,
-                callback_depth=callback_depth, card_id=card_id, session_id=session_id,
-                role=role, autonomy_directive_path=autonomy_directive_path,
+        lock = self._get_chat_lock(chat_id)
+        current_task = asyncio.current_task()
+        turn_generation: int | None = None
+
+        if is_callback:
+            turn_generation = self._snapshot_turn(chat_id)
+            if current_task is not None:
+                self._active_callback_tasks[chat_id] = current_task
+        else:
+            turn_generation = self._bump_user_turn(chat_id, message_id)
+            callback_task = self._active_callback_tasks.get(chat_id)
+            if callback_task and not callback_task.done() and callback_task is not current_task:
+                logger.info(
+                    "[Orchestrator] cancelling in-flight callback before user turn "
+                    "chat_id=%s message_id=%s",
+                    chat_id, message_id,
+                )
+                callback_task.cancel()
+
+        wait_start = time.perf_counter()
+        if lock.locked():
+            logger.info(
+                "[Orchestrator] chat lock wait start chat_id=%s message_id=%s "
+                "is_callback=%s",
+                chat_id, message_id, is_callback,
             )
+        try:
+            async with lock:
+                wait_ms = int((time.perf_counter() - wait_start) * 1000)
+                logger.info(
+                    "[Orchestrator] chat lock acquired chat_id=%s message_id=%s "
+                    "is_callback=%s wait_ms=%s",
+                    chat_id, message_id, is_callback, wait_ms,
+                )
+                hold_start = time.perf_counter()
+                try:
+                    return await self._handle_message_inner(
+                        websocket=websocket, content=content, message_id=message_id,
+                        chat_id=chat_id, workspace_id=workspace_id, layers=layers,
+                        chat_level=chat_level, is_callback=is_callback,
+                        callback_depth=callback_depth, card_id=card_id, session_id=session_id,
+                        role=role, autonomy_directive_path=autonomy_directive_path,
+                        turn_generation=turn_generation,
+                    )
+                finally:
+                    hold_ms = int((time.perf_counter() - hold_start) * 1000)
+                    logger.info(
+                        "[Orchestrator] chat lock released chat_id=%s message_id=%s "
+                        "is_callback=%s hold_ms=%s",
+                        chat_id, message_id, is_callback, hold_ms,
+                    )
+        finally:
+            if is_callback and self._active_callback_tasks.get(chat_id) is current_task:
+                self._active_callback_tasks.pop(chat_id, None)
 
     async def _handle_message_inner(
         self,
@@ -150,6 +231,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
         session_id: str | None = None,
         role: str = "dispatcher",
         autonomy_directive_path: str = "",
+        turn_generation: int | None = None,
     ) -> list[asyncio.Task]:
         """Inner implementation of handle_message (called under per-chat lock)."""
         _bg_tasks: list[asyncio.Task] = []
@@ -199,6 +281,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 send_model_status=send_model_status,
                 active_workers_context=active_workers_context,
                 is_callback=is_callback,
+                turn_generation=turn_generation,
             )
         else:
             # Mode Fast (default): Sonnet streams to chat
@@ -219,6 +302,7 @@ class ChatOrchestrator(LayerRunnersMixin, DelegateDispatchMixin, ToolCallFallbac
                 is_callback=is_callback,
                 role=role,
                 autonomy_directive_path=autonomy_directive_path,
+                turn_generation=turn_generation,
             )
 
         if not chat_success:
@@ -609,4 +693,3 @@ assert (
     "DelegateDispatchMixin._execute_direct_action — do not redefine delegate "
     "dispatch methods in ChatOrchestrator (see commit 69e6fe3)."
 )
-

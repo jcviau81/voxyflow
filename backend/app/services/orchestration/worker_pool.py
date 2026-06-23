@@ -662,6 +662,8 @@ class DeepWorkerPool:
         # would otherwise raise UnboundLocalError and mask the real error, silently
         # dropping the task.
         _wss = get_worker_session_store()
+        task_started_at = time.perf_counter()
+        event.data["_worker_started_perf"] = task_started_at
         try:
             # Resolve worker class / model / endpoint / effort.
             # Precedence: worker_class.model (if matched) > default_worker_model (fallback).

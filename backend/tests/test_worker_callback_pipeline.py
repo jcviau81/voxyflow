@@ -1,5 +1,7 @@
+import asyncio
 import os
 import sys
+from contextlib import suppress
 from collections import deque
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,6 +9,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from app.services.chat_orchestration import ChatOrchestrator
 from app.services.orchestration.layer_runners import LayerRunnersMixin
 from app.services.orchestration.worker_pool import DeepWorkerPool
 
@@ -156,6 +159,127 @@ async def test_successful_callback_acks_events(monkeypatch):
     assert send_and_fanout.await_count == 2
     assert send_and_fanout.await_args_list[-1].args[2] == "chat:response"
     assert send_and_fanout.await_args_list[-1].args[3]["done"] is True
+
+
+@pytest.mark.asyncio
+async def test_stale_callback_suppresses_buffered_response(monkeypatch):
+    pool = _make_pool()
+    _record_events(pool, count=1)
+    runner = _make_runner(pool, ["Late callback."])
+    runner.is_turn_current = MagicMock(return_value=False)
+    send_model_status = AsyncMock()
+    websocket = MagicMock()
+    send_and_fanout = AsyncMock()
+
+    monkeypatch.setattr(
+        "app.services.orchestration.layer_runners.ws_broadcast.send_and_fanout_chat",
+        send_and_fanout,
+    )
+
+    ok = await runner._run_fast_layer(
+        websocket=websocket,
+        content="worker finished",
+        message_id="msg-1",
+        chat_id="chat-1",
+        workspace_name=None,
+        workspace_id=None,
+        chat_level="workspace",
+        project_context=None,
+        card_context=None,
+        project_names=[],
+        session_id="sess-1",
+        send_model_status=send_model_status,
+        is_callback=True,
+        turn_generation=1,
+    )
+
+    assert ok is True
+    send_and_fanout.assert_not_awaited()
+    assert [ev["task_id"] for ev in pool.peek_worker_events("chat-1")] == ["T0"]
+
+
+@pytest.mark.asyncio
+async def test_stale_user_response_suppresses_before_first_token(monkeypatch):
+    pool = _make_pool()
+    runner = _make_runner(pool, ["Late user response."])
+    runner.is_turn_current = MagicMock(return_value=False)
+    send_model_status = AsyncMock()
+    websocket = MagicMock()
+    send_and_fanout = AsyncMock()
+
+    monkeypatch.setattr(
+        "app.services.orchestration.layer_runners.ws_broadcast.send_and_fanout_chat",
+        send_and_fanout,
+    )
+
+    ok = await runner._run_fast_layer(
+        websocket=websocket,
+        content="old question",
+        message_id="msg-old",
+        chat_id="chat-1",
+        workspace_name=None,
+        workspace_id=None,
+        chat_level="workspace",
+        project_context=None,
+        card_context=None,
+        project_names=[],
+        session_id="sess-1",
+        send_model_status=send_model_status,
+        is_callback=False,
+        turn_generation=1,
+    )
+
+    assert ok is True
+    send_and_fanout.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_user_turn_cancels_in_flight_callback_lock_holder(monkeypatch):
+    claude = _FakeClaude([])
+    orch = ChatOrchestrator(claude)
+    callback_started = asyncio.Event()
+    user_finished = asyncio.Event()
+
+    async def fake_inner(**kwargs):
+        if kwargs["is_callback"]:
+            callback_started.set()
+            await asyncio.sleep(10)
+        user_finished.set()
+        return []
+
+    monkeypatch.setattr(orch, "_handle_message_inner", fake_inner)
+
+    callback_task = asyncio.create_task(
+        orch.handle_message(
+            websocket=MagicMock(),
+            content="[worker-callback]",
+            message_id="wcb-1",
+            chat_id="chat-1",
+            workspace_id=None,
+            is_callback=True,
+            session_id="sess-1",
+        )
+    )
+    await asyncio.wait_for(callback_started.wait(), timeout=1)
+
+    result = await asyncio.wait_for(
+        orch.handle_message(
+            websocket=MagicMock(),
+            content="are you locked?",
+            message_id="user-1",
+            chat_id="chat-1",
+            workspace_id=None,
+            is_callback=False,
+            session_id="sess-1",
+        ),
+        timeout=1,
+    )
+
+    assert result == []
+    assert user_finished.is_set()
+    with suppress(asyncio.CancelledError):
+        await callback_task
+    assert callback_task.cancelled() or callback_task.done()
 
 
 # ---------------------------------------------------------------------------

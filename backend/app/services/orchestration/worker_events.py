@@ -58,6 +58,7 @@ def record_worker_event(
     """
     if not dispatcher_chat_id:
         return
+    now = time.time()
     buf = pool._worker_events.setdefault(
         dispatcher_chat_id,
         deque(maxlen=pool._MAX_WORKER_EVENTS_PER_CHAT),
@@ -66,10 +67,15 @@ def record_worker_event(
         "task_id": task_id,
         "intent": intent or "unknown",
         "status": status,
-        "finished_at": time.time(),
+        "finished_at": now,
         "summary_line": (summary_line or "")[:500],
         "completion": completion or None,
     })
+    logger.info(
+        "[DeepWorkerPool] worker event recorded chat_id=%s task_id=%s "
+        "status=%s queue_size=%s at_ms=%s",
+        dispatcher_chat_id, task_id, status, len(buf), int(now * 1000),
+    )
 
 
 def peek_worker_events(
@@ -155,11 +161,24 @@ def schedule_dispatcher_callback(
         if not getattr(existing, "_fired", False):
             # Still in the debounce sleep — reset the timer.
             existing.cancel()
+            logger.info(
+                "[DeepWorkerPool] callback debounce re-armed chat_id=%s "
+                "task_id=%s depth=%s debounce_s=%s",
+                dispatcher_chat_id, event.task_id, event.callback_depth,
+                pool._CALLBACK_DEBOUNCE_SECONDS,
+            )
         # else: the debouncer already fired and is mid-callback turn.
         # Cancelling now would truncate a live dispatcher stream. Leave
         # it running — the replacement scheduled below serializes behind
         # the per-chat lock in handle_message, and this completion's
         # ambient event is only acked once a turn actually renders it.
+    else:
+        logger.info(
+            "[DeepWorkerPool] callback debounce armed chat_id=%s "
+            "task_id=%s depth=%s debounce_s=%s",
+            dispatcher_chat_id, event.task_id, event.callback_depth,
+            pool._CALLBACK_DEBOUNCE_SECONDS,
+        )
 
     pool._callback_debouncers[dispatcher_chat_id] = asyncio.create_task(
         run_debounced_callback(pool, dispatcher_chat_id, event)
@@ -169,9 +188,16 @@ def schedule_dispatcher_callback(
 async def run_debounced_callback(
     pool: "DeepWorkerPool", dispatcher_chat_id: str, event: ActionIntent,
 ) -> None:
+    scheduled_at = time.perf_counter()
     try:
         await asyncio.sleep(pool._CALLBACK_DEBOUNCE_SECONDS)
     except asyncio.CancelledError:
+        logger.info(
+            "[DeepWorkerPool] callback debounce cancelled chat_id=%s "
+            "task_id=%s elapsed_ms=%s",
+            dispatcher_chat_id, event.task_id,
+            int((time.perf_counter() - scheduled_at) * 1000),
+        )
         return
 
     # Mark this debouncer as fired — from here on the scheduler must NOT
@@ -199,6 +225,13 @@ async def run_debounced_callback(
             pool._callback_debouncers.pop(dispatcher_chat_id, None)
         return
 
+    callback_start = time.perf_counter()
+    logger.info(
+        "[DeepWorkerPool] callback dispatcher enter chat_id=%s task_id=%s "
+        "depth=%s debounce_elapsed_ms=%s",
+        dispatcher_chat_id, event.task_id, event.callback_depth,
+        int((callback_start - scheduled_at) * 1000),
+    )
     try:
         await pool._orchestrator.handle_message(
             websocket=pool._ws,
@@ -213,6 +246,20 @@ async def run_debounced_callback(
             card_id=event.data.get("card_id"),
             session_id=event.session_id,
         )
+        logger.info(
+            "[DeepWorkerPool] callback dispatcher exit chat_id=%s task_id=%s "
+            "elapsed_ms=%s",
+            dispatcher_chat_id, event.task_id,
+            int((time.perf_counter() - callback_start) * 1000),
+        )
+    except asyncio.CancelledError:
+        logger.info(
+            "[DeepWorkerPool] callback dispatcher cancelled chat_id=%s "
+            "task_id=%s elapsed_ms=%s",
+            dispatcher_chat_id, event.task_id,
+            int((time.perf_counter() - callback_start) * 1000),
+        )
+        raise
     except Exception as e:
         logger.warning(
             f"[DeepWorkerPool] Dispatcher callback failed for {dispatcher_chat_id}: {e}"

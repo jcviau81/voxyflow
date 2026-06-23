@@ -5,9 +5,6 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# NOTE: TONE/WARMTH/LANGUAGE modifiers + build_system_prompt() are NOT on the
-# dispatcher path — they serve the worker/agent path (worker_prompts.py
-# build_agent_prompt) and are re-exported by personality_service. Keep them.
 TONE_MODIFIERS = {
     "casual": "Use a casual, conversational tone. Be relaxed and natural.",
     "balanced": "Use a balanced tone -- professional but approachable.",
@@ -38,53 +35,18 @@ LANGUAGE_INSTRUCTIONS = {
 
 
 class DispatcherPromptsMixin:
-    """build_system_prompt + dispatcher/fast/deep/autonomy prompt builders."""
+    """Dispatcher/fast/deep/autonomy prompt builders."""
 
-    # ------------------------------------------------------------------
-    # Legacy/generic prompt builder (used by existing layer methods)
-    # ------------------------------------------------------------------
-
-    def build_system_prompt(
-        self,
-        base_prompt: str,
-        include_user: bool = True,
-        include_memory_context: Optional[str] = None,
-        agent_persona: Optional[str] = None,
-    ) -> str:
-        sections = []
-
-        # Layer 1: Who am I?
-        soul = self.load_soul()
-        identity = self.load_identity()
-        if soul or identity:
-            sections.append("## Who You Are\n")
-            if identity:
-                sections.append(identity + "\n")
-            if soul:
-                sections.append(soul + "\n")
-
-        # Layer 1b: Operating directives
-        agents = self.load_agents()
-        if agents:
-            sections.append("## Operating Directives\n")
-            sections.append(agents + "\n")
-
-        # Layer 2: Who is the human?
-        if include_user:
-            user = self.load_user()
-            if user:
-                sections.append("## About Your Human\n")
-                sections.append(user + "\n")
-
-        # Layer 2b: Settings overrides
+    def _build_settings_overrides_section(self) -> str:
+        """Build user-configured personality settings for active prompt builders."""
         ps = self.get_personality_settings()
         custom = ps.get("custom_instructions", "").strip()
         env_notes = ps.get("environment_notes", "").strip()
         tone = ps.get("tone", "casual")
         warmth = ps.get("warmth", "warm")
-
         preferred_language = ps.get("preferred_language", "auto")
 
+        sections: list[str] = []
         style_parts = []
         if tone in TONE_MODIFIERS:
             style_parts.append(TONE_MODIFIERS[tone])
@@ -93,32 +55,12 @@ class DispatcherPromptsMixin:
         if preferred_language in LANGUAGE_INSTRUCTIONS:
             style_parts.append(LANGUAGE_INSTRUCTIONS[preferred_language])
         if style_parts:
-            sections.append("## Communication Style\n")
-            sections.append("\n".join(style_parts) + "\n")
-
+            sections.append("## Communication Style\n" + "\n".join(style_parts))
         if custom:
-            sections.append("## Custom Instructions\n")
-            sections.append(custom + "\n")
-
+            sections.append("## Custom Instructions\n" + custom)
         if env_notes:
-            sections.append("## Environment Notes\n")
-            sections.append(env_notes + "\n")
-
-        # Layer 3: Memory context
-        if include_memory_context:
-            sections.append("## Retrieved fragments (may be noisy — raw semantic hits, not curated truth; scores below ~0.20 are background noise)\n")
-            sections.append(include_memory_context + "\n")
-
-        # Layer 4: Agent persona overlay
-        if agent_persona:
-            sections.append("## Specialized Role\n")
-            sections.append(agent_persona + "\n")
-
-        # Layer 5: Task instructions
-        sections.append("## Your Current Task\n")
-        sections.append(base_prompt)
-
-        return "\n".join(sections)
+            sections.append("## Environment Notes\n" + env_notes)
+        return "\n\n".join(sections)
 
     def _build_tool_section(self, tool_names: set, chat_level: str = "general") -> str:
         """Build a tool instruction text block for a given set of tool names.

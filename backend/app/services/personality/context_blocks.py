@@ -321,6 +321,9 @@ class ContextBlocksMixin:
             sections.append(agents)
         if user:
             sections.append(user)
+        settings_overrides = self._build_settings_overrides_section()
+        if settings_overrides:
+            sections.append(settings_overrides)
 
         return "\n\n".join(sections)
 
@@ -330,6 +333,7 @@ class ContextBlocksMixin:
         Dynamic workspace details (description, recent cards) must be injected
         via build_dynamic_context_block().
         """
+        identity = self.load_identity()
         soul = self.load_soul()
         user = self.load_user()
         agents = self.load_agents()
@@ -339,12 +343,17 @@ class ContextBlocksMixin:
         # Chat Init FIRST — before personality files (static only)
         sections.append(self.build_workspace_chat_init(workspace))
 
+        if identity:
+            sections.append(identity)
         if soul:
             sections.append(soul)
         if agents:
             sections.append(agents)
         if user:
             sections.append(user)
+        settings_overrides = self._build_settings_overrides_section()
+        if settings_overrides:
+            sections.append(settings_overrides)
 
         return "\n\n".join(sections)
 
@@ -354,7 +363,10 @@ class ContextBlocksMixin:
         Dynamic card details (description, status, checklist) must be injected
         via build_dynamic_context_block().
         """
+        identity = self.load_identity()
         soul = self.load_soul()
+        user = self.load_user()
+        agents = self.load_agents()
 
         sections = []
 
@@ -365,7 +377,16 @@ class ContextBlocksMixin:
         if agent_persona and agent_persona.get("system_prompt"):
             sections.append(agent_persona["system_prompt"])
 
+        if identity:
+            sections.append(identity)
         if soul:
             sections.append(soul)
+        if agents:
+            sections.append(agents)
+        if user:
+            sections.append(user)
+        settings_overrides = self._build_settings_overrides_section()
+        if settings_overrides:
+            sections.append(settings_overrides)
 
         return "\n\n".join(sections)
