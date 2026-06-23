@@ -153,6 +153,7 @@ async def test_curation_system_main_scope_writes_global_only(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.db
 async def test_curation_kg_invalidate_then_add(monkeypatch):
     from app.services import memory_curation as mc
     from app.services import memory_service as memsvc
@@ -204,6 +205,7 @@ async def test_curation_kg_invalidate_then_add(monkeypatch):
     assert len(dep) == 1 and dep[0]["valid_to"] is not None
 
 
+@pytest.mark.db
 async def test_curation_kg_unchanged_fact_is_not_rewritten(monkeypatch):
     from app.services import memory_curation as mc
     from app.services import memory_service as memsvc
