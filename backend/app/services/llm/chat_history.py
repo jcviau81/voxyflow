@@ -201,19 +201,35 @@ class ChatHistoryMixin:
         # Determine what needs summarizing
         existing = session_store.load_summary(chat_id)
         already_summarized = existing["summarized_count"] if existing else 0
+        summary_text = existing["summary_text"] if existing else ""
         cutoff = len(history) - window  # everything before this index gets summarized
 
         if cutoff > already_summarized:
-            # New messages to evict — summarize them incrementally
-            existing_text = existing["summary_text"] if existing else ""
-            newly_evicted = history[already_summarized:cutoff]
-            summary_text = await self._summarize_evicted_messages(chat_id, newly_evicted, existing_text)
-            if summary_text:
-                session_store.save_summary(chat_id, summary_text, cutoff)
+            # Messages have scrolled out of the window but aren't summarized yet.
+            # Summarizing via the (Codex/Haiku) subprocess costs ~10s and used to
+            # block EVERY dispatcher turn on a long conversation. Instead: fire the
+            # summarization in the BACKGROUND so it's ready next turn, and include
+            # the not-yet-summarized messages RAW this turn so no context is lost.
+            #
+            # Safety net: if we're more than a full window behind (background task
+            # failing/stalled), summarize synchronously this turn to bound prompt
+            # growth — otherwise `recent` would grow without limit.
+            if cutoff - already_summarized > window:
+                existing_text = summary_text
+                newly_evicted = history[already_summarized:cutoff]
+                summary_text = await self._summarize_evicted_messages(
+                    chat_id, newly_evicted, existing_text
+                )
+                if summary_text:
+                    session_store.save_summary(chat_id, summary_text, cutoff)
+                recent = self._strip_timestamps_into_content(history[-window:])
+            else:
+                self._schedule_background_summary(chat_id, already_summarized, cutoff)
+                # Include everything since the last COMPLETED summary boundary so
+                # the un-summarized tail is present until the background job lands.
+                recent = self._strip_timestamps_into_content(history[already_summarized:])
         else:
-            summary_text = existing["summary_text"] if existing else ""
-
-        recent = self._strip_timestamps_into_content(history[-window:])
+            recent = self._strip_timestamps_into_content(history[-window:])
 
         if summary_text:
             summary_msg = {
@@ -227,3 +243,56 @@ class ChatHistoryMixin:
             return [summary_msg, {"role": "assistant", "content": "Understood, I have the context from our earlier conversation."}, *recent]
 
         return recent
+
+    def _schedule_background_summary(self, chat_id: str, start: int, end: int) -> None:
+        """Fire-and-forget incremental summarization of ``history[start:end]``.
+
+        Keeps the ~10s summarization subprocess off the dispatcher's critical
+        path. At most one summary task runs per chat_id at a time; re-scheduling
+        while one is in flight is a no-op (the next turn re-checks and schedules
+        again once it finishes). The raw tail returned by ``_get_windowed_history``
+        covers the gap until the summary lands, so nothing is lost if this races
+        or fails.
+        """
+        tasks = getattr(self, "_summary_tasks", None)
+        if tasks is None:
+            tasks = {}
+            self._summary_tasks = tasks
+        inflight = tasks.get(chat_id)
+        if inflight is not None and not inflight.done():
+            return
+        try:
+            task = asyncio.create_task(self._background_summarize(chat_id, start, end))
+        except RuntimeError:
+            # No running event loop (e.g. called from sync context/tests) — skip;
+            # the sync safety-net path will catch up once we're a window behind.
+            return
+        tasks[chat_id] = task
+
+    async def _background_summarize(self, chat_id: str, start: int, end: int) -> None:
+        """Background worker: summarize evicted messages and persist the result."""
+        try:
+            # Re-read the persisted boundary so we never re-summarize a range a
+            # concurrent/earlier task already covered, and never clobber a newer
+            # summary with a partial one.
+            existing = session_store.load_summary(chat_id)
+            already = existing["summarized_count"] if existing else 0
+            if end <= already:
+                return
+            start = max(start, already)
+            existing_text = existing["summary_text"] if existing else ""
+            history = self._get_history(chat_id)
+            newly_evicted = history[start:end]
+            if not newly_evicted:
+                return
+            summary_text = await self._summarize_evicted_messages(
+                chat_id, newly_evicted, existing_text
+            )
+            if summary_text:
+                session_store.save_summary(chat_id, summary_text, end)
+        except Exception as e:
+            logger.warning(f"[sliding_window] Background summarization failed for {chat_id}: {e}")
+        finally:
+            tasks = getattr(self, "_summary_tasks", None)
+            if tasks is not None:
+                tasks.pop(chat_id, None)

@@ -30,6 +30,31 @@ logger = logging.getLogger(__name__)
 # import time for tests (patch app.services.llm.codex_backend._STEER_DEBOUNCE_SECS).
 _STEER_DEBOUNCE_SECS: float = 0.8
 
+# Codex command-execution sandbox mode. Codex uses bubblewrap (bwrap) to sandbox
+# shell commands for the `read-only` and `workspace-write` modes. On Ubuntu 24.04+
+# (kernel 6.8, kernel.apparmor_restrict_unprivileged_userns=1) bwrap cannot set up
+# the unprivileged user namespace it needs — commands fail with
+#   bwrap: setting up uid map: Permission denied
+#   bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted
+# which silently kills a worker's shell + apply_patch helper (files never land,
+# validation never runs) while the task still reports partial/success. Voxyflow is
+# a single-user, local install where workers already run with the full privileges
+# of the OS user (see CLAUDE.md — the sandbox is NOT a security boundary here), so
+# default to full access and let the OS user be the boundary. Override with
+# CODEX_SANDBOX_MODE on hosts where bwrap works (e.g. apparmor restriction off).
+_CODEX_SANDBOX_MODE: str = os.environ.get("CODEX_SANDBOX_MODE", "danger-full-access")
+
+# Dispatcher roles must NEVER be able to write code. The Voxyflow MCP role gate
+# (TOOLS_DISPATCHER / TOOLS_DISPATCHER_CODEX) only restricts *Voxyflow* MCP tools;
+# it does nothing about Codex's OWN built-in tools (shell + apply_patch), which are
+# always on. The Claude CLI backend blocks these for the dispatcher via
+# `--disallowedTools Bash Read Edit Write ...`; the Codex equivalent is the
+# `read-only` sandbox — it keeps read shell + MCP tools working but blocks file
+# writes / mutating shell. This is a HARD boundary (role wins over any requested
+# sandbox), mirroring the dispatcher↔worker split in CLAUDE.md.
+_DISPATCHER_ROLES: frozenset[str] = frozenset({"dispatcher", "dispatcher_codex"})
+_DISPATCHER_SANDBOX_MODE: str = "read-only"
+
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
 _MCP_STDIO_PATH = _BACKEND_DIR / "mcp_stdio.py"
 _VOXYFLOW_ROOT = _BACKEND_DIR.parent
@@ -252,7 +277,7 @@ class CodexCliBackend:
         model: str,
         *,
         cwd: str = "",
-        sandbox: str = "workspace-write",
+        sandbox: str = _CODEX_SANDBOX_MODE,
         approval_policy: str = "never",
         json_output: bool = True,
         resume_thread_id: str = "",
@@ -289,8 +314,19 @@ class CodexCliBackend:
             args.extend(["-C", cwd])
         if model:
             args.extend(["-m", model])
-        if sandbox:
-            args.extend(["-s", sandbox])
+        # Hard boundary: a dispatcher role is forced read-only regardless of the
+        # requested sandbox, so the interactive chat layer can never write code /
+        # run mutating shell via Codex's built-in tools. Workers keep their
+        # requested (full-access) sandbox. See _DISPATCHER_ROLES above.
+        effective_sandbox = sandbox
+        if mcp_role in _DISPATCHER_ROLES and effective_sandbox != _DISPATCHER_SANDBOX_MODE:
+            logger.info(
+                "[CodexCLI] Forcing sandbox=%s for dispatcher role %r (was %r)",
+                _DISPATCHER_SANDBOX_MODE, mcp_role, sandbox,
+            )
+            effective_sandbox = _DISPATCHER_SANDBOX_MODE
+        if effective_sandbox:
+            args.extend(["-s", effective_sandbox])
         # Reasoning-effort override (root-level config flag, before `exec`).
         # Omitted when unset so Codex's own default applies.
         from app.services.llm.reasoning_effort import codex_reasoning_effort
@@ -432,7 +468,7 @@ class CodexCliBackend:
         session_type: str = "worker",
         task_id: str = "",
         cwd: str = "",
-        sandbox: str = "workspace-write",
+        sandbox: str = _CODEX_SANDBOX_MODE,
         effort: str = "",
     ) -> tuple[str, dict]:
         """Run one Codex exec turn and return ``(response_text, usage)``.
