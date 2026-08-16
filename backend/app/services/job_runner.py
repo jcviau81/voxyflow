@@ -67,6 +67,25 @@ def _check_payload_gate(job: dict, payload: dict) -> dict | None:
     if gate_type == "file_has_directive":
         gate_path = gate.get("path")
         divider = gate.get("divider") or "---"
+
+        # For workspace heartbeats the stored path is only a snapshot taken
+        # when autonomy was enabled, so it goes stale whenever the workspace's
+        # directory name changes (a rename, or the id-keyed → readable-name
+        # migration). Re-resolve from the workspace id instead: the gate would
+        # otherwise check a file nobody writes any more and the heartbeat would
+        # silently stop firing, with no error anywhere. Non-heartbeat file
+        # gates keep using their explicit path.
+        ws_id = payload.get("workspace_id")
+        if payload.get("workspace_heartbeat") and ws_id:
+            from app.services.workspace_autonomy import heartbeat_file
+            resolved = str(heartbeat_file(ws_id))
+            if resolved != gate_path:
+                logger.info(
+                    f"[Jobs] '{job.get('id')}' gate path was stale "
+                    f"({gate_path} → {resolved})"
+                )
+            gate_path = resolved
+
         if not gate_path:
             return None
         if not _file_has_directive(gate_path, divider):

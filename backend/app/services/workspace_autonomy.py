@@ -7,7 +7,7 @@ MCP scoping all land in the right place.
 
 Layout
 ------
-- Directive file: ``~/.voxyflow/sandbox/workspaces/{workspace_id}/heartbeat.md``
+- Directive file: ``~/.voxyflow/sandbox/workspaces/{workspace-name}/heartbeat.md``
 - Job id:         ``proj-heartbeat-{workspace_id}``  (stored in ``jobs.json``)
 - Job type:       ``agent_task`` (reuses existing executor in ``job_runner``)
 
@@ -37,6 +37,8 @@ logger = logging.getLogger("voxyflow.workspace_autonomy")
 
 
 VOXYFLOW_DIR = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
+# Kept for callers that want the root; individual workspace folders come from
+# workspace_paths.workspace_sandbox_area (readable names, one implementation).
 SANDBOX_DIR = VOXYFLOW_DIR / "sandbox" / "workspaces"
 
 DIVIDER = "---"
@@ -51,8 +53,17 @@ DEFAULT_SCHEDULE = "every_5min"
 
 
 def heartbeat_file(workspace_id: str) -> Path:
-    """Absolute path to the workspace's heartbeat directive file."""
-    return SANDBOX_DIR / workspace_id / "heartbeat.md"
+    """Absolute path to the workspace's heartbeat directive file.
+
+    Uses the workspace's readable sandbox folder
+    (``sandbox/workspaces/uo-outlands-guild-system/heartbeat.md``) rather than
+    an id-keyed one. Deliberately the *sandbox area* and not the worker cwd:
+    a workspace can point at an external checkout, and this control file must
+    not be written into the user's own repo.
+    """
+    from app.services.workspace_paths import workspace_sandbox_area
+
+    return workspace_sandbox_area(workspace_id) / "heartbeat.md"
 
 
 def job_id_for(workspace_id: str) -> str:

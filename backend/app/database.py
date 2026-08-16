@@ -1,5 +1,6 @@
 """Database setup: async SQLAlchemy engine + session factory."""
 
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -20,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Engine & session
@@ -178,6 +181,38 @@ async def init_db():
 
         # Make sure the directory exists so workers can chdir into it on first launch.
         _Path(HOME_LOCAL_PATH).mkdir(parents=True, exist_ok=True)
+
+        # Backfill local_path for workspaces created without one. local_path is
+        # the single source of truth for a workspace's working directory (see
+        # services/workspace_paths), so a null one is what used to send workers
+        # into an unreadable id-keyed folder. Slug collisions get an id suffix —
+        # duplicate titles are rejected for active workspaces but archived ones
+        # can still clash.
+        from app.services.workspace_paths import _workspaces_root, slugify as _slugify
+
+        # Must be the resolver's own root, not HOME_LOCAL_PATH's parent: that
+        # constant hardcodes ~/.voxyflow and ignores VOXYFLOW_SANDBOX_DIR, so on
+        # a custom-sandbox install the backfill would write paths the runtime
+        # never looks at — re-creating the very drift this unification removes.
+        _ws_root = _workspaces_root()
+        _rows = (await conn.execute(text(
+            "SELECT id, title, local_path FROM workspaces"
+        ))).fetchall()
+        _taken = {
+            str(_Path(r[2]).expanduser()) for r in _rows if r[2]
+        }
+        for _id, _title, _lp in _rows:
+            if _lp:
+                continue
+            _candidate = str(_ws_root / _slugify(_title or _id))
+            if _candidate in _taken:
+                _candidate = f"{_candidate}-{str(_id)[:8]}"
+            _taken.add(_candidate)
+            await conn.execute(
+                text("UPDATE workspaces SET local_path = :lp WHERE id = :id"),
+                {"lp": _candidate, "id": _id},
+            )
+            logger.info("Backfilled local_path for workspace %s: %s", _id, _candidate)
 
         # Migrate all cards with workspace_id = NULL → system-main
         await conn.execute(text(

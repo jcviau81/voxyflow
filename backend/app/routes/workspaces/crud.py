@@ -25,7 +25,7 @@ from app.database import (
     new_uuid, utcnow,
 )
 from app.models.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, WorkspaceWithCards
-from app.services import workspace_autonomy
+from app.services import workspace_autonomy, workspace_paths
 from app.services.sandbox_service import get_sandbox_service
 
 logger = logging.getLogger(__name__)
@@ -50,20 +50,40 @@ async def create_workspace(body: WorkspaceCreate, db: AsyncSession = Depends(get
             detail=f"A workspace named '{body.title.strip()}' already exists."
         )
 
+    workspace_id = new_uuid()
+
     # Auto-create workspace directory for the workspace
     ws = get_sandbox_service()
     if body.local_path:
-        # User specified a custom path — use it and ensure it exists
+        # User specified a custom path — use it and ensure it exists. No
+        # uniqueness check here: pointing two workspaces at one checkout is a
+        # legitimate thing to do deliberately, and delete_workspace never
+        # rmtree's a path outside the sandbox.
         workspace_dir = Path(body.local_path).expanduser()
         workspace_dir.mkdir(parents=True, exist_ok=True)
         local_path = str(workspace_dir)
     else:
-        # Default: ~/.voxyflow/workspace/<workspace-slug>/
-        workspace_dir = ws.ensure_workspace_sandbox(body.title.strip())
+        # Default: ~/.voxyflow/sandbox/workspaces/<workspace-slug>/
+        workspace_dir = ws.get_workspace_sandbox(body.title.strip())
+        # The slug may already be owned by another row: the duplicate-title
+        # guard above ignores archived workspaces, and a rename deliberately
+        # leaves local_path in place (CLAUDE.md §5a). local_path is the worker
+        # cwd, so sharing one would leak files between workspaces — and
+        # delete_workspace rmtree's it, taking the other's files down with it.
+        # Same -id suffix the init_db backfill uses.
+        clash = (await db.execute(
+            select(Workspace.id).where(Workspace.local_path == str(workspace_dir))
+        )).first()
+        if clash:
+            workspace_dir = workspace_dir.with_name(f"{workspace_dir.name}-{workspace_id[:8]}")
+            logger.info(
+                "Workspace slug %s already taken — using %s", body.title.strip(), workspace_dir
+            )
+        workspace_dir.mkdir(parents=True, exist_ok=True)
         local_path = str(workspace_dir)
 
     workspace = Workspace(
-        id=new_uuid(),
+        id=workspace_id,
         title=body.title.strip(),
         description=body.description or "",
         context=body.context or "",
@@ -78,6 +98,7 @@ async def create_workspace(body: WorkspaceCreate, db: AsyncSession = Depends(get
     db.add(workspace)
     await db.commit()
     await db.refresh(workspace)
+    workspace_paths.invalidate(workspace.id)
     return workspace
 
 
@@ -144,6 +165,11 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
     # Capture before the row is deleted — accessing the ORM object after
     # commit would try to refresh a dead row.
     local_path = workspace.local_path
+    # Same reason, plus the resolver reads the title from the row: once it is
+    # gone the lookup falls back to the id-keyed path and would miss this
+    # folder. It holds the autonomy heartbeat.md, which for an
+    # external-checkout workspace is neither `sandbox_dir` nor `local_path`.
+    sandbox_area = workspace_paths.workspace_sandbox_area(workspace_id)
 
     # Delete all cards belonging to this workspace (cascades to checklist items,
     # attachments, relations, history via ORM relationships).
@@ -185,8 +211,14 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
     # Filesystem: session files (workspace + per-card), workspace dir, worker
     # sessions whose JSON carries this workspace_id, and worker artifacts for
     # every task that belonged to the workspace.
+    # The resolver caches id → local_path; drop it now so nothing re-creates the
+    # directory we are about to remove.
+    workspace_paths.invalidate(workspace_id)
+
     data_root = Path(os.environ.get("VOXYFLOW_DATA_DIR", os.path.expanduser("~/.voxyflow")))
     sessions_dir = data_root / "sessions"
+    # Legacy id-keyed area — workers wrote here before the path unification.
+    # Still swept so an old install doesn't leave an orphan folder behind.
     sandbox_dir = data_root / "sandbox" / "workspaces" / workspace_id
     worker_sessions_dir = data_root / "worker_sessions"
     worker_artifacts_dir = data_root / "worker_artifacts"
@@ -206,6 +238,13 @@ async def delete_workspace(workspace_id: str, db: AsyncSession = Depends(get_db)
             _rmtree(sessions_dir / "card" / cid)
             _rmtree(ATTACHMENTS_BASE / cid)
         _rmtree(sandbox_dir)
+
+        # Our own sandbox folder for this workspace (autonomy heartbeat.md).
+        # For a sandbox-backed workspace this is the same path as local_path
+        # below; for an external checkout it is the only thing that removes it.
+        # workspace_sandbox_area is sandbox-relative by construction, so no
+        # containment check is needed here.
+        _rmtree(sandbox_area)
 
         # Slug-keyed workspace dir created by create_workspace (workspace.local_path).
         # Only removed when it lies strictly inside the sandbox root — a
@@ -301,6 +340,10 @@ async def update_workspace(
 
     await db.commit()
     await db.refresh(workspace)
+    # A title rename deliberately does NOT move local_path (that would orphan
+    # files already on disk), but an explicit local_path edit must take effect
+    # for the next worker without waiting out the resolver's TTL.
+    workspace_paths.invalidate(workspace_id)
     return workspace
 
 
