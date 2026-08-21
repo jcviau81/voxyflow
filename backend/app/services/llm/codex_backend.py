@@ -48,12 +48,19 @@ _CODEX_SANDBOX_MODE: str = os.environ.get("CODEX_SANDBOX_MODE", "danger-full-acc
 # (TOOLS_DISPATCHER / TOOLS_DISPATCHER_CODEX) only restricts *Voxyflow* MCP tools;
 # it does nothing about Codex's OWN built-in tools (shell + apply_patch), which are
 # always on. The Claude CLI backend blocks these for the dispatcher via
-# `--disallowedTools Bash Read Edit Write ...`; the Codex equivalent is the
-# `read-only` sandbox — it keeps read shell + MCP tools working but blocks file
-# writes / mutating shell. This is a HARD boundary (role wins over any requested
-# sandbox), mirroring the dispatcher↔worker split in CLAUDE.md.
+# `--disallowedTools Bash Read Edit Write ...`; the Codex equivalent is
+# `--disable shell_tool` plus the `read-only` sandbox for apply_patch. MCP tools
+# keep working. Note the sandbox alone is NOT enough: on the bwrap-broken hosts
+# described above `read-only` cannot start, so the shell fails at call time with
+# a raw bwrap error the dispatcher then reports to the user instead of
+# delegating. Removing the tool is what makes the boundary legible to the model.
+# This is a HARD boundary (role wins over any requested sandbox), mirroring the
+# dispatcher↔worker split in CLAUDE.md.
 _DISPATCHER_ROLES: frozenset[str] = frozenset({"dispatcher", "dispatcher_codex"})
 _DISPATCHER_SANDBOX_MODE: str = "read-only"
+# Codex feature flag for its built-in shell tool. Disabling it removes the tool
+# from the dispatcher's surface entirely (`codex features list` → shell_tool).
+_DISPATCHER_DISABLED_TOOL: str = "shell_tool"
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent.parent.parent
 _MCP_STDIO_PATH = _BACKEND_DIR / "mcp_stdio.py"
@@ -319,12 +326,24 @@ class CodexCliBackend:
         # run mutating shell via Codex's built-in tools. Workers keep their
         # requested (full-access) sandbox. See _DISPATCHER_ROLES above.
         effective_sandbox = sandbox
-        if mcp_role in _DISPATCHER_ROLES and effective_sandbox != _DISPATCHER_SANDBOX_MODE:
-            logger.info(
-                "[CodexCLI] Forcing sandbox=%s for dispatcher role %r (was %r)",
-                _DISPATCHER_SANDBOX_MODE, mcp_role, sandbox,
-            )
-            effective_sandbox = _DISPATCHER_SANDBOX_MODE
+        if mcp_role in _DISPATCHER_ROLES:
+            if effective_sandbox != _DISPATCHER_SANDBOX_MODE:
+                logger.info(
+                    "[CodexCLI] Forcing sandbox=%s for dispatcher role %r (was %r)",
+                    _DISPATCHER_SANDBOX_MODE, mcp_role, sandbox,
+                )
+                effective_sandbox = _DISPATCHER_SANDBOX_MODE
+            # Drop the shell tool outright rather than relying on the sandbox to
+            # refuse each command. `read-only` is enforced through bwrap, which
+            # cannot start at all on the hosts described above — so the shell
+            # does not come back "read-only", it comes back as a raw
+            # `bwrap: loopback: Failed RTM_NEWADDR` at call time. The dispatcher
+            # then surfaces that error to the user instead of delegating.
+            # Removing the tool makes the boundary legible to the model: it sees
+            # no shell, so it delegates, which is what we wanted anyway.
+            # `-s read-only` stays as defence in depth for apply_patch, which is
+            # a separate tool and is not covered by this flag.
+            args.extend(["--disable", _DISPATCHER_DISABLED_TOOL])
         if effective_sandbox:
             args.extend(["-s", effective_sandbox])
         # Reasoning-effort override (root-level config flag, before `exec`).
@@ -744,7 +763,14 @@ class CodexCliBackend:
                     response_parts,
                     ctx,
                     tool_callback,
-                    chat_id=chat_id,
+                    # Only chat sessions own the chat→thread mapping. A worker
+                    # shares its chat_id with the workspace chat, so letting it
+                    # record its thread here made the next dispatcher turn
+                    # resume the *worker's* thread: the dispatcher's read-only
+                    # policy was applied to the running worker mid-task, whose
+                    # apply_patch then died on `bwrap: loopback: Failed
+                    # RTM_NEWADDR`, and both sides saw each other's transcript.
+                    chat_id=chat_id if session_type == "chat" else "",
                 )
         except BaseException:
             stdout_failed = True

@@ -51,22 +51,28 @@ SETTINGS_FILE = VOXYFLOW_DATA_DIR / "settings.json"  # lives in data dir (outsid
 
 
 def workspace_workdir(workspace_id: str | None) -> Path:
-    """Per-workspace working directory under the sandbox, keyed by workspace ID.
+    """Per-workspace working directory — the readable path the UI advertises.
 
     Workers default here so files they create (via ``system.exec`` shell
     commands or ``file.write``) land inside their own workspace area instead of
-    scattering into ``/tmp`` or the shared sandbox root. Keyed by the stable
-    workspace **ID** (UUID or ``"system-main"``), never the title — consistent
-    with the workspace-isolation invariant (titles change on rename and orphan
-    data). The directory is created on demand; on failure we fall back to the
-    sandbox root so callers always get a usable, in-sandbox path.
+    scattering into ``/tmp`` or the shared sandbox root.
+
+    The directory is the workspace's ``local_path`` — the slug-named folder the
+    creation route makes (``sandbox/workspaces/uo-outlands-guild-system``) or
+    the external checkout the user pointed at. This used to key off the
+    workspace **id** instead, which gave every workspace a second,
+    UUID-named folder that workers wrote into while the frontend advertised the
+    slug one. ``local_path`` is written once at creation and never follows a
+    rename, so it stays as stable as the id was — see
+    ``services/workspace_paths.resolve_workspace_dir`` for the full order.
+
+    The directory is created on demand; on failure we fall back to the sandbox
+    root so callers always get a usable path.
     """
-    import re as _re
+    from app.services.workspace_paths import resolve_workspace_dir
 
     sandbox = Path(VOXYFLOW_SANDBOX_DIR).expanduser().resolve()
-    ws_id = (workspace_id or "").strip() or "system-main"
-    safe = _re.sub(r"[^A-Za-z0-9._-]", "-", ws_id) or "system-main"
-    workdir = sandbox / "workspaces" / safe
+    workdir = resolve_workspace_dir(workspace_id)
     try:
         workdir.mkdir(parents=True, exist_ok=True)
     except OSError:

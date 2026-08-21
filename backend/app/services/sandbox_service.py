@@ -47,13 +47,13 @@ class SandboxService:
         return ws
 
     def _slugify(self, name: str) -> str:
-        """Convert workspace name to a safe directory name."""
-        import re
-        slug = name.strip().lower()
-        slug = re.sub(r'[^\w\s-]', '', slug)
-        slug = re.sub(r'[\s_]+', '-', slug)
-        slug = slug.strip('-')
-        return slug or 'unnamed'
+        """Convert workspace name to a safe directory name.
+
+        Delegates to ``workspace_paths.slugify`` so the folder this service
+        creates and the one the worker runtime resolves are always the same.
+        """
+        from app.services.workspace_paths import slugify
+        return slugify(name)
 
     def _validate_path(self, relative_path: str) -> None:
         """Reject paths with '..' components or absolute paths (fast syntactic check)."""

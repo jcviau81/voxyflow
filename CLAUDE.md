@@ -252,5 +252,13 @@ Invariants to preserve when touching memory, MCP tools, or chat routing. Regress
 - New local CLI entrypoint → thread `workspace_id` through the provider's MCP config builder (`cli_backend` or `codex_backend`)
 - New chat handler in `main.py` → derive `chat_id` from server-side ids, do not echo the frontend's `chatId` blindly
 
+### 5a. The working directory is `local_path`, and it is written in clear
+- `workspaces.local_path` is the **single** source of truth for where a workspace's files live. `config.workspace_workdir()` delegates to `services/workspace_paths.resolve_workspace_dir()`; nothing else may compute a workspace directory.
+- The name on disk is **readable**: `~/.voxyflow/sandbox/workspaces/uo-outlands-guild-system`, never the UUID. Resolution order is `local_path` → `slugify(title)` → sanitized id (legacy/no-row only).
+- **Do not "fix" this back to id-keying.** The slug warning in §1 is about **ChromaDB collection keys**, which are a different problem: a collection is looked up by key, so a rename would orphan it. A directory is looked up by the *stored* `local_path`, which is written once at creation and deliberately does **not** follow a rename — so it is exactly as stable as an id, and legible. Keying the folder by id gave every workspace two directories (the slug one the UI advertised, the UUID one workers actually wrote into) and hid the user's files.
+- `local_path` may point at an external checkout. It is used only if it exists — a stale one falls back to the sandbox area rather than materialising an empty tree, and the `is_dir()` probe is `OSError`-guarded because this sits on the `system.exec` path where a dead mount would otherwise block then raise.
+- **Regression guard:** `backend/tests/test_workspace_paths.py` — `test_creation_and_runtime_agree` fails if the creation route and the worker runtime ever diverge again.
+- Legacy id-keyed folders are merged by `backend/scripts/migrate_workspace_dirs.py` (`--dry-run` first).
+
 ### 6. Drift detection
 - `cli_backend.stream_persistent` logs `[CLI-persistent] WORKSPACE_ID DRIFT: ...` if a persistent chat process is reused with a different `workspace_id` than it was spawned with. If you see this in logs, something upstream is wrong.
