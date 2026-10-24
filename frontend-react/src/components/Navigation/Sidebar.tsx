@@ -190,7 +190,7 @@ export function Sidebar({ isOpen, onToggle, onPanelToggle, onOpenCommandPalette 
     >
       {/* ── Brand ── */}
       <div className="sidebar-brand flex items-center gap-2 px-4 py-3 border-b border-border shrink-0">
-        <img src="/favicon.svg" alt="Voxyflow" width={28} height={28} className="shrink-0" />
+        <img src="/logo-mark.png" alt="Voxyflow" width={28} height={28} className="shrink-0" />
         <span className="sidebar-logo-text text-sm text-foreground whitespace-nowrap">Voxyflow</span>
       </div>
 

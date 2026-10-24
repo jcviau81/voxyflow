@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
         strategies: 'injectManifest',
         srcDir: 'src',
         filename: 'sw.ts',
-        includeAssets: ['favicon.svg', 'icons.svg'],
+        includeAssets: ['logo-mark.png', 'icons.svg'],
         manifest: {
           name: 'Voxyflow',
           short_name: 'Voxyflow',
